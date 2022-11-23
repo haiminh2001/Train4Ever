@@ -232,8 +232,12 @@ class FCNMaskHead(BaseModule):
             mask_pred = det_bboxes.new_tensor(mask_pred)
 
         device = mask_pred.device
-        cls_segms = [[] for _ in range(self.num_classes)
-                     ]  # BG is not included in num_classes
+        
+        #NOTE:original code
+        # cls_segms = [[] for _ in range(self.num_classes)
+        #              ]  # BG is not included in num_classes
+        
+        
         bboxes = det_bboxes[:, :4]
         labels = det_labels
 
@@ -279,35 +283,48 @@ class FCNMaskHead(BaseModule):
         chunks = torch.chunk(torch.arange(N, device=device), num_chunks)
 
         threshold = rcnn_test_cfg.mask_thr_binary
+        
+        #NOTE:original code
+        # im_mask = torch.zeros(
+        #     N,
+        #     img_h,
+        #     img_w,
+        #     device=device,
+        #     dtype=torch.bool if threshold >= 0 else torch.uint8)
+        
+        
         im_mask = torch.zeros(
-            N,
             img_h,
             img_w,
             device=device,
-            dtype=torch.bool if threshold >= 0 else torch.uint8)
+            dtype= torch.long)
 
         if not self.class_agnostic:
             mask_pred = mask_pred[range(N), labels][:, None]
 
+        start = 0
         for inds in chunks:
             masks_chunk, spatial_inds = _do_paste_mask(
                 mask_pred[inds],
                 bboxes[inds],
                 img_h,
                 img_w,
+                start = start,
                 skip_empty=device.type == 'cpu')
+            start += len(inds)
+            #NOTE:original code
+            # if threshold >= 0:
+            #     masks_chunk = (masks_chunk >= threshold).to(dtype=torch.bool)
+            # else:
+            #     # for visualization and debugging
+            #     masks_chunk = (masks_chunk * 255).to(dtype=torch.uint8)
+            
+            im_mask[spatial_inds] = torch.where(masks_chunk != 0, masks_chunk, im_mask[spatial_inds]).reshape(masks_chunk.shape)
 
-            if threshold >= 0:
-                masks_chunk = (masks_chunk >= threshold).to(dtype=torch.bool)
-            else:
-                # for visualization and debugging
-                masks_chunk = (masks_chunk * 255).to(dtype=torch.uint8)
-
-            im_mask[(inds, ) + spatial_inds] = masks_chunk
-
-        for i in range(N):
-            cls_segms[labels[i]].append(im_mask[i].detach().cpu().numpy())
-        return cls_segms
+        #NOTE:original code
+        # for i in range(N):
+        #     cls_segms[labels[i]].append(im_mask[i].detach().cpu().numpy())
+        return im_mask.detach().cpu().numpy()
 
     def onnx_export(self, mask_pred, det_bboxes, det_labels, rcnn_test_cfg,
                     ori_shape, **kwargs):
@@ -341,7 +358,7 @@ class FCNMaskHead(BaseModule):
         return masks
 
 
-def _do_paste_mask(masks, boxes, img_h, img_w, skip_empty=True):
+def _do_paste_mask(masks, boxes, img_h, img_w, start = 0, skip_empty=True):
     """Paste instance masks according to boxes.
 
     This implementation is modified from
@@ -391,6 +408,7 @@ def _do_paste_mask(masks, boxes, img_h, img_w, skip_empty=True):
     img_x = (img_x - x0) / (x1 - x0) * 2 - 1
     # img_x, img_y have shapes (N, w), (N, h)
     # IsInf op is not supported with ONNX<=1.7.0
+    
     if not torch.onnx.is_in_onnx_export():
         if torch.isinf(img_x).any():
             inds = torch.where(torch.isinf(img_x))
@@ -398,15 +416,35 @@ def _do_paste_mask(masks, boxes, img_h, img_w, skip_empty=True):
         if torch.isinf(img_y).any():
             inds = torch.where(torch.isinf(img_y))
             img_y[inds] = 0
-
+            
     gx = img_x[:, None, :].expand(N, img_y.size(1), img_x.size(1))
     gy = img_y[:, :, None].expand(N, img_y.size(1), img_x.size(1))
-    grid = torch.stack([gx, gy], dim=3)
+    
+    # grid = torch.stack([gx, gy], dim=3)
 
-    img_masks = F.grid_sample(
-        masks.to(dtype=torch.float32), grid, align_corners=False)
+    # img_masks = F.grid_sample(
+    #     masks.to(dtype=torch.float32), grid, align_corners=False)
+    
+    img_masks = torch.zeros(img_y.size(1), img_x.size(1), device = 'cuda:0', dtype = torch.long)
+    
+    for i in range(N):
+        # print(N, 'N')
+        gx = img_x[i, None, :].expand(img_y.size(1), img_x.size(1))
+        gy = img_y[i, :, None].expand(img_y.size(1), img_x.size(1))
+        
+        grid = torch.stack([gx, gy], dim=2)
 
+        img_mask = F.grid_sample(
+            masks[i].to(dtype=torch.float32).unsqueeze(0), grid.unsqueeze(0), align_corners=False)
+        img_masks = torch.where(img_mask >= 0.5, torch.tensor(int(start + i + 1), dtype = torch.long, device = 'cuda:0'), img_masks).reshape(img_y.size(1), img_x.size(1))    
+    
+   
     if skip_empty:
-        return img_masks[:, 0], (slice(y0_int, y1_int), slice(x0_int, x1_int))
+        return img_masks, (slice(y0_int, y1_int), slice(x0_int, x1_int))
     else:
-        return img_masks[:, 0], ()
+        return img_masks, ()
+    #NOTE:original
+    # if skip_empty:
+    #     return img_masks[:, 0], (slice(y0_int, y1_int), slice(x0_int, x1_int))
+    # else:
+    #     return img_masks[:, 0], ()
