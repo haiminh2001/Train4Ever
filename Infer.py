@@ -15,21 +15,34 @@ from mmdet.apis import init_detector, inference_detector, single_gpu_test
 from mmcv import Config
 import traceback
 from mmdet.utils import AvoidCUDAOOM
-config = Config.fromfile(f'config_780-1100.py')
-ckpt_path = 'weights/epoch_30.pth'
 
+VERSION = 'CBNetV2_mask_rcnn'
+MAX_DETS = 1500
+NOTE = f'_maxdet{MAX_DETS}_sliding'
 import os
 import sys
 
 model = init_detector(config, ckpt_path, device='cuda')
 
-ROOT_FOLDER = '/app/'
-INPUT_FOLDER = '/workspace/inputs/'
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input_path", type=str, default ='/workspace/inputs/', help="input path"
+    )
+    parser.add_argument(
+        "--config_path", type=str, default = 'f'config_780-1100.py', help="input path"
+    )
+    parser.add_argument(
+        "--ckpt_path", type=str, default = 'weights/epoch_30.pth', help="input path"
+    )
 
-SAVED_FOLDER = f'/workspace/outputs' # folder in drive to save prediction zipped file
-VERSION = 'CBNetV2_mask_rcnn'
-MAX_DETS = 1500
-NOTE = f'_maxdet{MAX_DETS}_sliding'
+    parser.add_argument(
+        "--output_path", type=str, default = '/workspace/outputs' help="out path"
+    )
+
+    args = parser.parse_args()
+    return args
+
 
 
 # Predict on the whole tuning set
@@ -156,41 +169,52 @@ def shortest_edge_resize(img, shortest_edge_length, max_size):
     newh = int (newh + 0.5)
     return cv2.resize(img, (neww, newh))
 
-# Predict tuning
-os.makedirs(SAVED_FOLDER, exist_ok=True)
-for fname in tqdm(sorted(os.listdir(INPUT_FOLDER))):
+  
+if __name__ == '__main__':
+    args = parse_args()
+    
+    
+    INPUT_FOLDER = args.input_path
+    config = Config.fromfile(args.config_path)
+    ckpt_path = args.ckpt_path
+    SAVED_FOLDER = args.output_path # folder in drive to save prediction zipped file
+    
 
-# for fname in sorted(os.listdir(TUNING_SET_DIR))[:4]:
-        img_path = os.path.join(INPUT_FOLDER, fname)
-        # print(img_path)
-        im = read_image(img_path)
-        im = process_image(im)
+    # Predict tuning
+    os.makedirs(SAVED_FOLDER, exist_ok=True)
+    for fname in tqdm(sorted(os.listdir(INPUT_FOLDER))):
 
-        # # convert to RGB
-        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-        shortest_edge = np.min(im.shape[:2])
-        torch.cuda.empty_cache()
+    # for fname in sorted(os.listdir(TUNING_SET_DIR))[:4]:
+            img_path = os.path.join(INPUT_FOLDER, fname)
+            # print(img_path)
+            im = read_image(img_path)
+            im = process_image(im)
 
-        outputs = inference_detector(model, im)
-        torch.cuda.empty_cache()
-        # print(outputs)
-        # outputs = predictor(im)
+            # # convert to RGB
+            im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+            shortest_edge = np.min(im.shape[:2])
+            torch.cuda.empty_cache()
 
-        if type(outputs[1]) == list or outputs[1].max() <= MIN_REQUIRED_INST_NUM or shortest_edge > MIN_SIDE_FOR_SLIDING:
-            patch_size = get_patch_size(shortest_edge)
-            # print('Image', fname, 'has predicted inst num =', 0 if type(outputs[1]) == list else outputs[1].max(),
-            #     'And size =', shortest_edge,
-            #     '. Use sliding window infer with patch size:', patch_size)
-            pred_instance_mask = sliding_window_prediction(im, patch_size)
-            # print('After using sliding window, Image', fname, 'has predicted inst num =', pred_instance_mask.max())
-        else:
-            # pred_instance_mask = np.zeros((im.shape[0], im.shape[1]), dtype=np.int32)
-            # for i, mask in enumerate(outputs[1][0]):
-            #     inst_id = i+1
-            #     pred_instance_mask[mask] = inst_id
-            pred_instance_mask = outputs[1]
-        # if not len(np.unique(pred_instance_mask)) > 5:
-        #     print(fname)
-        torch.cuda.empty_cache()
-        output_path = os.path.join(SAVED_FOLDER, fname.split('.')[0] +'_label.tiff')
-        tif.imwrite(output_path, pred_instance_mask, compression='zlib')
+            outputs = inference_detector(model, im)
+            torch.cuda.empty_cache()
+            # print(outputs)
+            # outputs = predictor(im)
+
+            if type(outputs[1]) == list or outputs[1].max() <= MIN_REQUIRED_INST_NUM or shortest_edge > MIN_SIDE_FOR_SLIDING:
+                patch_size = get_patch_size(shortest_edge)
+                # print('Image', fname, 'has predicted inst num =', 0 if type(outputs[1]) == list else outputs[1].max(),
+                #     'And size =', shortest_edge,
+                #     '. Use sliding window infer with patch size:', patch_size)
+                pred_instance_mask = sliding_window_prediction(im, patch_size)
+                # print('After using sliding window, Image', fname, 'has predicted inst num =', pred_instance_mask.max())
+            else:
+                # pred_instance_mask = np.zeros((im.shape[0], im.shape[1]), dtype=np.int32)
+                # for i, mask in enumerate(outputs[1][0]):
+                #     inst_id = i+1
+                #     pred_instance_mask[mask] = inst_id
+                pred_instance_mask = outputs[1]
+            # if not len(np.unique(pred_instance_mask)) > 5:
+            #     print(fname)
+            torch.cuda.empty_cache()
+            output_path = os.path.join(SAVED_FOLDER, fname.split('.')[0] +'_label.tiff')
+            tif.imwrite(output_path, pred_instance_mask, compression='zlib')
