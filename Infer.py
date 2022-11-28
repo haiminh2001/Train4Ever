@@ -1,5 +1,5 @@
 from tqdm.auto import tqdm
-
+import argparse
 from skimage import io, segmentation, morphology, exposure
 import tifffile as tif
 import json
@@ -22,7 +22,6 @@ NOTE = f'_maxdet{MAX_DETS}_sliding'
 import os
 import sys
 
-model = init_detector(config, ckpt_path, device='cuda')
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -30,14 +29,14 @@ def parse_args():
         "--input_path", type=str, default ='/workspace/inputs/', help="input path"
     )
     parser.add_argument(
-        "--config_path", type=str, default = 'f'config_780-1100.py', help="input path"
+        "--config_path", type=str, default = 'config_780-1100.py', help="input path"
     )
     parser.add_argument(
         "--ckpt_path", type=str, default = 'weights/epoch_30.pth', help="input path"
     )
 
     parser.add_argument(
-        "--output_path", type=str, default = '/workspace/outputs' help="out path"
+        "--output_path", type=str, default = '/workspace/outputs', help="out path"
     )
 
     args = parser.parse_args()
@@ -175,8 +174,10 @@ if __name__ == '__main__':
     
     
     INPUT_FOLDER = args.input_path
-    config = Config.fromfile(args.config_path)
+    config = Config.fromfile(args.config_path)    
     ckpt_path = args.ckpt_path
+    model = init_detector(config, ckpt_path, device='cuda')
+
     SAVED_FOLDER = args.output_path # folder in drive to save prediction zipped file
     
 
