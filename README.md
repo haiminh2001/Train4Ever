@@ -1,4 +1,5 @@
 # Set up environment
+Our model and code are based on CBNetV2 of [UniverseNet](https://github.com/shinya7y/UniverseNet)
 
 ```
 git clone https://github.com/haiminh2001/Train4Ever.git
@@ -57,4 +58,3 @@ checkpoint our model [here](https://drive.google.com/drive/folders/1cFBQSOXAtmpC
 python Infer.py --input_path <path_to_input_data> --config_path <path_to_input_config> --ckpt_path <path_to_input_ckpt> --output_path <path_to_output>
 ```
 
-Our model based on CBNetV2 of [UniverseNet](https://github.com/shinya7y/UniverseNet)
